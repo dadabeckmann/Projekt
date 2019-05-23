@@ -1,58 +1,81 @@
 ---
 title: "Projketbericht"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      fig.width = 10, fig.height = 8)
+```
 
 
 ##Landkreise
+
 ```{r}
 library(tidyverse)
 library(sf)
-library(ggplot2)
-library(dplyr)
+library(plotly)
 ```
 
+
 ```{r}
-landkreise_in_germany 
+landkreise_in_germany <- read_sf("data/landkreise/landkreise-in-germany.shp")
 ```
+
 
 ```{r}
 ggplot(landkreise_in_germany) +
   geom_sf()
 ```
-```{r}
-landkreise_in_germany <- read_sf("C:/Users/David/Documents/Projektbericht/landkreise-in-germany/landkreise-in-germany.shp")
-```
-
-```{r}
-
-
-Spritpreise_2019_Januar01 <- read_csv("2019/2019/01/2019-01-24-stations.csv") 
-
-read_csv("2019/2019/01/2019-01-24-stations.csv") 
-
-
-```
-
-```{r}
-str(Spritpreise_2019_Januar01)
-
-```
-```{r}
-summary(Spritpreise_2019_Januar01)
-```
-
-
-
-
 
 
 ```{r}
-
-Spritpreise_2019_Januar01 %>%
-select(brand, longitude, latitude)
-  
+stations_2019 <- read_csv("data/stations/stations.csv") 
 ```
 
 
+```{r}
+stations_2019 %>%
+  select(uuid, brand, longitude, latitude) %>% 
+  head
+```
+
+
+# Get the top 10 brand names
+
+```{r}
+top_10_brands <- stations_2019 %>% 
+  count(brand) %>%
+  arrange(desc(n)) %>% 
+  filter(!is.na(brand)) %>% 
+  head(10) %>% 
+  pull(brand)
+
+top_10_brands
+```
+
+
+
+```{r}
+# Filter stations and transform longitude and latitude
+geo <- stations_2019 %>% 
+  filter(brand %in% top_10_brands[1:5]) %>%
+  filter(latitude > 0 & longitude > 0) %>% 
+  sample_frac(0.1) %>% 
+  sf::st_as_sf(coords = c("longitude", "latitude"), crs=4326) %>% 
+  sf::st_transform(crs=4326)
+
+# Combine data with coordinates
+station_coords <- cbind(geo, sf::st_coordinates(geo))
+
+# Plot german map and points from station_cords on top
+plt <- ggplot() + 
+  geom_sf(data=landkreise_in_germany, alpha=0.2, colour="grey") +
+  geom_point(data=station_coords, aes(X, Y, fill=brand), alpha=0.8) +
+  theme_bw()
+
+plotly::ggplotly(plt)
+```
 
