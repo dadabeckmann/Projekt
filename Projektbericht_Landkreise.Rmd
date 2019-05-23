@@ -1,0 +1,58 @@
+---
+title: "Projketbericht"
+output: html_notebook
+---
+
+
+##Landkreise
+```{r}
+library(tidyverse)
+library(sf)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+landkreise_in_germany 
+```
+
+```{r}
+ggplot(landkreise_in_germany) +
+  geom_sf()
+```
+```{r}
+landkreise_in_germany <- read_sf("C:/Users/David/Documents/Projektbericht/landkreise-in-germany/landkreise-in-germany.shp")
+```
+
+```{r}
+
+
+Spritpreise_2019_Januar01 <- read_csv("2019/2019/01/2019-01-24-stations.csv") 
+
+read_csv("2019/2019/01/2019-01-24-stations.csv") 
+
+
+```
+
+```{r}
+str(Spritpreise_2019_Januar01)
+
+```
+```{r}
+summary(Spritpreise_2019_Januar01)
+```
+
+
+
+
+
+
+```{r}
+
+Spritpreise_2019_Januar01 %>%
+select(brand, longitude, latitude)
+  
+```
+
+
+
