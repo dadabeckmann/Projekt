@@ -11,39 +11,37 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
 ```
 
 
-##Landkreise
+## Load Libraries
 
 ```{r}
 library(tidyverse)
 library(sf)
 library(plotly)
+library(hrbrthemes)
 ```
 
 
+## Load Data 
+
 ```{r}
+# Import maps
 landkreise_in_germany <- read_sf("data/landkreise/landkreise-in-germany.shp")
-```
+plz_gebiete <- read_sf("data/plz-gebiete/plz-2stellig.shp")
 
-
-```{r}
-ggplot(landkreise_in_germany) +
-  geom_sf()
-```
-
-
-```{r}
-stations_2019 <- read_csv("data/stations/stations.csv") 
+# Import tankstation data
+stations_2019 <- read_csv("data/stations/stations.csv") %>% 
+  mutate(post_2stellig = substring(post_code, 1, 2))
 ```
 
 
 ```{r}
 stations_2019 %>%
-  select(uuid, brand, longitude, latitude) %>% 
-  head
+  select(uuid, brand, city, longitude, latitude) %>% 
+  head()
 ```
 
 
-# Get the top 10 brand names
+## Get the top 10 brand names
 
 ```{r}
 top_10_brands <- stations_2019 %>% 
@@ -57,6 +55,7 @@ top_10_brands
 ```
 
 
+## Plot Top Brands in Germany 
 
 ```{r}
 # Filter stations and transform longitude and latitude
@@ -74,8 +73,37 @@ station_coords <- cbind(geo, sf::st_coordinates(geo))
 plt <- ggplot() + 
   geom_sf(data=landkreise_in_germany, alpha=0.2, colour="grey") +
   geom_point(data=station_coords, aes(X, Y, fill=brand), alpha=0.8) +
-  theme_bw()
+  hrbrthemes::theme_ipsum_tw()
 
 plotly::ggplotly(plt)
 ```
+
+
+## Plot by Zip and Gas Stations
+
+```{r}
+brand_zip <- stations_2019 %>% 
+  filter(brand %in% top_10_brands[1:5]) %>%
+  group_by(post_2stellig, brand) %>% 
+  summarise(count = n()) %>% 
+  ungroup()
+
+zip_plt <- brand_zip %>% 
+  left_join(plz_gebiete, by=c("post_2stellig" = "plz")) %>% 
+  ggplot() +
+  geom_sf(aes(fill=count)) +
+  coord_sf(crs = st_crs(4326)) +
+  facet_wrap(~ brand) +
+  scale_fill_gradient2(low="white", mid="yellow", high="red", midpoint = 27) +
+  hrbrthemes::theme_ipsum_tw()
+
+zip_plt
+```
+
+
+
+
+
+
+
 
