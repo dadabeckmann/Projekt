@@ -26,7 +26,7 @@ library(hrbrthemes)
 ```{r}
 # Import maps
 landkreise_in_germany <- read_sf("data/landkreise/landkreise-in-germany.shp")
-plz_gebiete <- read_sf("data/plz-gebiete/plz-2stellig.shp")
+plz_gebiete <- read_sf("data/plz-2stellig/plz-2stellig.shp")
 
 # Import tankstation data
 stations_2019 <- read_csv("data/stations/stations.csv") %>% 
