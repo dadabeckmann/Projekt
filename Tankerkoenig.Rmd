@@ -1,0 +1,81 @@
+---
+title: "Tankerkoenig"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, 
+                      fig.width = 9, fig.height = 7)
+
+library(data.table)
+library(DT)
+library(magrittr)
+library(sf)
+library(tmap)
+```
+
+```{r}
+# Import tankstation data and make brands toupper()
+stations <- fread("data/stations/stations.csv")
+stations[, brand := toupper(brand)]
+
+# Filter out bad coords and add 2-digit zip code
+stations <- stations[longitude > 0 & latitude > 0]
+stations[, plz := substring(post_code, 1, 2)]
+
+# Extract Top 5 Brands
+top_5 <- stations[, .(count = .N), by=brand][order(-count)][1:5, brand]
+stations <- stations[brand %in% top_5]
+
+# Import price data
+prices <- fread("data/prices/2019-06-05-prices.csv")
+prices[, date := as.Date(date)]
+daily_price <- prices[, .(diesel = round(mean(diesel), 2),
+                          e5     = round(mean(e5), 2),
+                          e10    = round(mean(e10), 2)), 
+                      by = .(date, station_uuid)]
+
+# Join stations with prices
+DT <- merge(stations, daily_price, by.x="uuid", by.y="station_uuid", all.x=TRUE)
+
+# Remove stations without price
+DT <- DT[!is.na(dt) & diesel > 1.0 & e5 > 1.0 & e10 > 1.0]
+
+# Extracting longitude and latitude and transforming
+station_map <- DT %>% 
+    sf::st_as_sf(coords = c("longitude", "latitude"), crs=4326) %>% 
+    sf::st_transform(crs=4326)
+
+tmap_mode("view")
+popup <- c("brand", "street", "city", "diesel", "e5", "e10")
+```
+
+## Gas Prices {.tabset}
+
+### Diesel
+
+```{r}
+station_map %>% 
+    tm_shape() + 
+    tm_dots(col="diesel", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "OpenStreetMap")
+```
+
+### e5
+
+```{r}
+station_map %>% 
+    tm_shape() + 
+    tm_dots(col="e5", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "OpenStreetMap")
+```
+
+### e10
+
+```{r}
+station_map %>% 
+    tm_shape() + 
+    tm_dots(col="e10", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "OpenStreetMap")
+```
+
