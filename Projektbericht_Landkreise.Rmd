@@ -91,7 +91,7 @@ brand_zip <- stations_2019 %>%
 zip_plt <- brand_zip %>% 
   left_join(plz_gebiete, by=c("post_2stellig" = "plz")) %>% 
   ggplot() +
-  geom_sf(aes(fill=count)) +
+  geom_sf(aes(geometry=geometry, fill=count)) +
   coord_sf(crs = st_crs(4326)) +
   facet_wrap(~ brand) +
   scale_fill_gradient2(low="white", mid="yellow", high="red", midpoint = 27) +
