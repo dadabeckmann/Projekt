@@ -1,4 +1,5 @@
 library(data.table)
+library(dygraphs)
 library(furrr)
 library(future)
 library(ggplot2)
@@ -77,8 +78,8 @@ monthly_brand <- monthly[, .(avg_diesel = round(mean(avg_diesel, na.rm = TRUE), 
 
 # Visualize ---------------------------------------------------------------
 
-library(dygraphs)
-
+# Write out results of script
+fwrite("data/prices/daily_brand_2014.csv")
 daily_brand[, .(date, brand, avg_diesel)] %>% 
   tidyr::spread(brand, avg_diesel) %>% 
   timetk::tk_xts(silent = TRUE) %>% 
