@@ -108,26 +108,14 @@ tm_shape(preise_bundesland) +
 ## Preisentwicklung von Benzin in Deutschland
 
 ```{r}
-file_names <- list.files("data/preise_daten/", full.names = TRUE)
+preis_daten <- fread("data/preise_daten/prices.csv")
 
-prepare_data <- function(file_path) {
-  DT <- fread(file_path)
-  DT[, date := stringr::str_extract(date, "\\d{4}-\\d{2}-\\d{2}")]
-  DT[,
-     .(diesel = round(mean(diesel), 2),
-       e5     = round(mean(e5), 2),
-       e10    = round(mean(e10), 2)),
-     by = date]
-}
-
-prices <- file_names %>% purrr::map_dfr(prepare_data)
-
-gathered <- tidyr::gather(prices, "type", "price", -date)
-
-gathered %>% 
+preis_daten %>% 
   ggplot(aes(as.Date(date), price, colour=type)) +
   geom_line() +
-  labs(title = "Price Change", x = "Date", y = "Preise (€)") +
+  scale_x_date(labels = scales::date_format("%b-%Y"), breaks = "months") +
+  scale_y_continuous(breaks = seq(1.20, 1.60, .05)) +
+  labs(title = "Preisentwicklung 2019", x = "Date", y = "Preis (€)") +
   theme_bw()
 ```
 
