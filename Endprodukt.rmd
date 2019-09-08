@@ -1,0 +1,443 @@
+---
+title: "Projektseminar"
+author: "David Beckmann und Jessica Kolass"
+date: "15. September 2019"
+output: 
+  rmdformats::readthedown:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      fig.width = 8, fig.height = 7, cache = TRUE)
+```
+
+```{r}
+## Packages
+library(tidyverse)
+library(sf)
+library(tmap)
+library(data.table)
+library(plotly)
+library(ggplot2)
+library(hrbrthemes)
+library(dplyr)
+library(tmaptools)
+library(eurostat)
+library(yaml)
+library(magrittr)
+library(purrr)
+library(furrr)
+library(rmdformats)
+```
+
+## Datenvorbereitung
+
+Den vorliegenden Datensatz haben wir von der Website Tankerkönig entnommen [Tankerkönig](https://dev.azure.com/tankerkoenig/_git/tankerkoenig-data). Wir haben unseren Datensatz auf den Juli 2019 beschränkt, um die Daten übersichtlich darzustellen und einen überblick über den Benzinpreis in Deutschland zu generieren. In dem Daensatz sind die Stationen, der Dieselpreis, der Benzinpreis (e10) und der Superpreis (e5) enthalten. Alle nachfolgenden Grafiken, werden sich auf diesen Datensatz beziehen, mit Ausnahme der Grafik der Preisentwicklung des Superbenzin seit 1973.
+
+<br>
+
+## Tankstellen Medianpreis {.tabset} 
+
+```{r}
+#Daten importieren
+stations <- fread("data/stations/stations.csv")
+prices <- fread("data/2019_Juli_Sommerferien.csv")
+
+#
+prices %>%
+  arrange(date) %>%
+  group_by(station_uuid) %>%
+  summarize(dieselpreis=last(diesel),
+            e5preis=last(e5),
+            e10preis=last(e10)) -> preise_nach_station
+
+#Verschneiden von Preisen und Stationen
+inner_join(preise_nach_station, stations, by=c("station_uuid"="uuid")) %>%
+  select(dieselpreis, e5preis, e10preis, name, brand, latitude, longitude) -> preise_geo
+
+#Uwandlung in sf
+preise_geo %>%
+  st_as_sf(coords=c("longitude", "latitude")) -> preise_sf
+
+#Mappen mit crs & co
+preise_geo %>%
+  filter(longitude<80) %>%
+  st_as_sf(coords=c("longitude", "latitude")) %>%
+  st_set_crs(4326) -> preise_sf
+
+#Erstellen der Bundeslandkarte
+bundesland <- get_eurostat_geospatial(nuts_level = 2) %>%
+  filter(CNTR_CODE == "DE")
+
+#Verschneiden von der Bundeslandkarte mit den Preisen
+st_join(bundesland, preise_sf) %>%
+  group_by(NUTS_ID) %>%
+  summarise(dieselpreis=median(dieselpreis),
+            e5preis=median(e5preis),
+            e10preis=median(e10preis)) -> preise_bundesland
+```
+
+
+### Diesel
+```{r}
+tm_shape(preise_bundesland) +
+  tm_fill("dieselpreis", title="Median Dieselpreise", style="cont", alpha=0.8) +
+  tm_borders(col = "black") +
+  tm_layout(legend.outside=TRUE)
+```
+
+### e5
+```{r}
+tm_shape(preise_bundesland) +
+  tm_fill("e5preis", title="Median e5 Preise", style="cont", alpha=0.8) +
+  tm_borders(col = "black") +
+  tm_layout(legend.outside=TRUE)
+```
+
+### e10
+```{r}
+tm_shape(preise_bundesland) +
+  tm_fill("e10preis", title="Median e10 Preise", style="cont", alpha=0.8) +
+  tm_borders(col = "black") +
+  tm_layout(legend.outside=TRUE)
+```
+
+<br>
+
+## Preisentwicklung von Benzin in Deutschland
+
+```{r}
+file_names <- list.files("data/preise_daten/", full.names = TRUE)
+
+prepare_data <- function(file_path) {
+  DT <- fread(file_path)
+  DT[, date := stringr::str_extract(date, "\\d{4}-\\d{2}-\\d{2}")]
+  DT[,
+     .(diesel = round(mean(diesel), 2),
+       e5     = round(mean(e5), 2),
+       e10    = round(mean(e10), 2)),
+     by = date]
+}
+
+prices <- file_names %>% purrr::map_dfr(prepare_data)
+
+gathered <- tidyr::gather(prices, "type", "price", -date)
+
+gathered %>% 
+  ggplot(aes(as.Date(date), price, colour=type)) +
+  geom_line() +
+  labs(title = "Price Change", x = "Date", y = "Preise (€)") +
+  theme_bw()
+```
+
+
+```{r}
+#Daten importieren
+df <-  read.delim("data/prices/Benzinpreise_1973.csv", sep=";", header=TRUE, dec = ",")
+
+#Plot von Benzin in Jahr und Preis
+ggplot(data=df,mapping=aes(x=Jahr, y=Preis), main="Superbenzin", col= "Spectral")+
+  geom_point(size=2) +
+  geom_line()+
+  theme_bw()+ 
+  scale_y_continuous("Preis in Cent", breaks = seq(0, 180, 20)) +
+  scale_x_continuous("Jahr", breaks = seq(min(df$Jahr), max(df$Jahr), 5))+
+  (ggtitle("Superbenzinpreis seit 1970 in Deutschland"))
+```
+
+<br>
+
+## Top sieben Marken in Deutschland
+```{r}
+# Balkendiagramm
+# Importieren der Stationen
+stations <- read.csv("data/stations/stations.csv", stringsAsFactors = FALSE)
+
+# Brands aussuchen und absteigend sortieren
+stations$brand <- tolower(stations$brand)
+station_count <- stations %>% count(brand) %>% arrange(desc(n))
+
+# Top 7 der brands aussuchen
+top_7_brands <- c("aral", "shell", "esso", "total", "avia", "jet", "star")
+top_7_df <- station_count %>% filter(brand %in% top_7_brands)
+
+# Alle nach Top 7 zusammenfassen
+non_top_7_df <- station_count %>% filter(!brand %in% top_7_brands)
+non_top_7_count <- data.frame(brand = "Sonstige", n = sum(non_top_7_df$n))
+
+# verbinden der von top 7 und Sonstige
+plot_count <- rbind(top_7_df, non_top_7_count) %>% 
+  mutate(label = paste0(brand, " (", n, ")"))
+
+# Plot der beiden Variablen in einem Balkendiagramm
+count_order <- plot_count$brand
+plot_count %>% 
+  mutate(brand = factor(brand, levels = count_order)) %>% 
+  ggplot() +
+  geom_bar(aes(brand, n, fill=brand), stat="identity") +
+  labs(x = "Marken", y = "Anzahl der Stationen", title = "Top 7 Marken in Deutschland") +
+  scale_y_continuous(breaks = seq(500, 8000, by = 500)) +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+<br>
+
+## Top 5 Marken der Tankstellen
+
+```{r}
+## Daten importieren
+# Karten
+landkreise_in_germany <- read_sf("data/landkreise/landkreise-in-germany.shp")
+plz_gebiete <- read_sf("data/plz-2stellig/plz-2stellig.shp")
+
+# stationen
+stations_2019 <- read_csv("data/stations/stations.csv") %>% 
+  #substring mit 2 Postleitzahlen erstellen
+  mutate(post_2stellig = substring(post_code, 1, 2))
+
+# Auswählen der Top 5
+top_5_brands <- stations_2019 %>% 
+  count(brand) %>%
+  arrange(desc(n)) %>% 
+  filter(!is.na(brand)) %>% 
+  head(5) %>% 
+  pull(brand)
+
+## Plot von Stationen und Postleitzahl
+# Verbinden der Posteitzahlen der Stationen mi der Top 5
+brand_zip <- stations_2019 %>% 
+  filter(brand %in% top_5_brands[1:5]) %>%
+# Sortieren nach Postleitzahlen
+  group_by(post_2stellig, brand) %>% 
+  summarise(count = n()) %>% 
+  ungroup()
+# Verschneiden der Stationenpostleitzahl mit der Postleitzahlkarte
+zip_plt <- brand_zip %>% 
+  left_join(plz_gebiete, by=c("post_2stellig" = "plz")) %>% 
+  ggplot() +
+  geom_sf(aes(geometry=geometry, fill=count)) +
+  coord_sf(crs = st_crs(4326)) +
+  facet_wrap(~ brand) +
+  scale_fill_gradient2(low="white", mid="yellow", high="red", midpoint = 27) +
+  hrbrthemes::theme_ipsum_tw()
+
+zip_plt
+```
+
+
+<br>
+
+## Tankstellen in Deutschland {.tabset}
+
+```{r}
+# Importieren der Stationsdaten von Tankerkönig und "Vergrößerug aller BUchstaben in Brands"
+stations <- fread("data/stations/stations.csv")
+stations[, brand := toupper(brand)]
+
+# Ausfiltern von schlechten Koordinaten durch
+stations <- stations[longitude > 0 & latitude > 0]
+
+# Top 5 Brands herausfiltern
+top_5 <- stations[, .(count = .N), by=brand][order(-count)][1:5, brand]
+top_5_brands <- stations[brand %in% top_5]
+
+# Importieren der Preisdaten aus dem juli 2019
+prices <- fread("data/2019_Juli_Sommerferien.csv")
+prices[, date := as.Date(date)]
+station_price <- prices[, .(diesel = round(mean(diesel), 2),
+                          e5     = round(mean(e5), 2),
+                          e10    = round(mean(e10), 2)), 
+                      by = .(station_uuid)]
+
+# Verschneiden der Preisdaten mit den Stationsdaten
+DT <- merge(top_5_brands, station_price, by.x="uuid", by.y="station_uuid", all.x=TRUE)
+
+# Alle Stationen
+diesel_alle <- DT[order(-diesel), uuid]
+e5_alle     <- DT[order(-e5), uuid]
+e10_alle    <- DT[order(-e10), uuid]
+
+#Entfernen der Sationen, die keinen Preis haben
+DT <- DT[!is.na(date) & diesel > 1.0 & e5 > 1.0 & e10 > 1.0]
+
+#Extrahieren von longitude und latitude zum transfomieren einer Karte
+station_map <- DT %>% 
+    sf::st_as_sf(coords = c("longitude", "latitude"), crs=4326) %>% 
+    sf::st_transform(crs=4326)
+
+### Tankstellen in Deutschland 
+# tm_map Einstellung für das Popup bestimmen
+tmap_mode("view")
+popup <- c("brand", "street", "city", "post_code", "diesel", "e5", "e10")
+```
+
+
+
+### Diesel
+
+#### Durschnittlicher Dieselpreis der Top 5 Marken im Juli 2019:`r round(mean(station_map$diesel), 2)` €
+
+```{r}
+station_map %>% 
+    tm_shape() + 
+    tm_dots(size = .07, col="diesel", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "Esri.WorldTopoMap")
+
+```
+
+### e5
+
+#### Durschnittlicher e5-Preis der Top 5 Marken im Juli 2019:`r round(mean(station_map$e5), 2)` €
+
+```{r}
+station_map %>%
+    tm_shape() + 
+    tm_dots(size = .07, col="e5", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "Esri.WorldTopoMap")
+
+```
+
+### e10
+
+#### Durschnittlicher e10-Preis der Top 5 Marken im Juli 2019:`r round(mean(station_map$e10), 2)` €
+
+```{r}
+station_map %>% 
+    tm_shape() + 
+    tm_dots(size = .07, col="e10", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "Esri.WorldTopoMap")
+```
+
+### Data
+
+```{r}
+Alle <- DT[uuid %in% c(diesel_alle, e5_alle, e10_alle),
+              .(uuid, brand, city, diesel, e5, e10)]
+DT::datatable(Alle)
+```
+
+<br>
+<br>
+
+## Die teuersten Tankstellen {.tabset}
+
+```{r}
+# Nur die teuersten Tankstelen
+top_100_diesel <- DT[order(-diesel), uuid][1:100]
+top_100_e5     <- DT[order(-e5), uuid][1:100]
+top_100_e10    <- DT[order(-e10), uuid][1:100]
+```
+
+### Diesel
+
+#### Durschnittlicher Dieselpreis der Top 5 Marken im Juli 2019: `r round(mean(station_map$diesel), 2)` €
+
+```{r}
+station_map %>% 
+    dplyr::filter(uuid %in% top_100_diesel) %>% 
+    tm_shape() + 
+    tm_dots(size = .07, col="diesel", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "Esri.WorldTopoMap")
+```
+
+### e5
+
+#### Durschnittlicher e5-Preis der Top 5 Marken im Juli 2019: `r round(mean(station_map$e5), 2)` €
+
+```{r}
+station_map %>%
+    dplyr::filter(uuid %in% top_100_e5) %>% 
+    tm_shape() + 
+    tm_dots(size = .07, col="e5", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "Esri.WorldTopoMap")
+```
+
+### e10
+
+#### Durschnittlicher e10-Preis der Top 5 Marken im Juli 2019:`r round(mean(station_map$e10), 2)` €
+
+```{r}
+station_map %>% 
+    dplyr::filter(uuid %in% top_100_e10) %>% 
+    tm_shape() + 
+    tm_dots(size = .07, col="e10", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "Esri.WorldTopoMap")
+```
+
+### Data
+
+```{r}
+top_100 <- DT[uuid %in% c(top_100_diesel, top_100_e5, top_100_e10),
+              .(uuid, brand, city, diesel, e5, e10)]
+DT::datatable(top_100)
+```
+
+## Preisentwicklung der top fünf Tankstellenmarken im Juli {.tabset}
+
+```{r}
+daily_price <- prices[, .(diesel = round(mean(diesel), 2),
+                          e5     = round(mean(e5), 2),
+                          e10    = round(mean(e10), 2)), 
+                      by = .(date, station_uuid)]
+# Verschneieden der Stationen mit dem Preis
+daily_price <- merge(top_5_brands, daily_price, by.x="uuid", by.y="station_uuid", all.x=TRUE)
+
+daily_price <- daily_price[, .(diesel = round(mean(diesel), 2),
+                          e5     = round(mean(e5), 2),
+                          e10    = round(mean(e10), 2)), 
+                      by = .(date, brand)]
+
+daily_price[, date := as.Date(date)]
+```
+
+
+### Diesel
+
+```{r}
+# Dieselpreis im Durchschnitt
+avg_diesel <- prices[, .(diesel = mean(diesel, na.rm = TRUE)), by=date]
+avg_diesel[, date := as.Date(date)]
+
+#Plot der Preisänderung für jede Staton im Juli
+plt <- ggplot(data=NULL, aes(date, diesel)) +
+    geom_line(data=avg_diesel, colour = "darkgrey", size = 3, alpha=.5) +
+    geom_line(data=daily_price, aes(colour = brand)) +
+    theme_bw()
+
+ggplotly(plt)
+```
+
+### e5
+
+```{r}
+# e5 Preis im Durchschnitt
+avg_e5 <- prices[, .(e5 = mean(e5, na.rm = TRUE)), by=date]
+avg_e5[, date := as.Date(date)]
+
+# Plot der Preisänderung für jede Staton im Juli
+plt <- ggplot(data=NULL, aes(date, e5)) +
+    geom_line(data=avg_e5, colour = "darkgrey", size = 3, alpha=.5) +
+    geom_line(data=daily_price, aes(colour = brand)) +
+    theme_bw()
+
+ggplotly(plt)
+```
+
+### e10
+
+```{r}
+# e10 Preis im Durchschnitt
+avg_e10 <- prices[, .(e10 = mean(e10, na.rm = TRUE)), by=date]
+avg_e10[, date := as.Date(date)]
+
+# Plot der Preisänderung für jede Staton im Juli
+plt <- ggplot(data=NULL, aes(date, e10)) +
+    geom_line(data=avg_e10, colour = "darkgrey", size = 3, alpha=.5) +
+    geom_line(data=daily_price, aes(colour = brand)) +
+    theme_bw()
+
+ggplotly(plt)
+```
+
