@@ -33,6 +33,11 @@ stations_2019 <- read_csv("data/stations/stations.csv") %>%
   mutate(post_2stellig = substring(post_code, 1, 2))
 ```
 
+```{r}
+head(stations_2019)
+summary(stations_2019)
+```
+
 
 ```{r}
 stations_2019 %>%
@@ -62,7 +67,7 @@ top_10_brands
 geo <- stations_2019 %>% 
   filter(brand %in% top_10_brands[1:5]) %>%
   filter(latitude > 0 & longitude > 0) %>% 
-  sample_frac(0.1) %>% 
+  sample_frac(0.2) %>% 
   sf::st_as_sf(coords = c("longitude", "latitude"), crs=4326) %>% 
   sf::st_transform(crs=4326)
 
@@ -80,6 +85,8 @@ plotly::ggplotly(plt)
 
 
 ## Plot by Zip and Gas Stations
+
+
 
 ```{r}
 brand_zip <- stations_2019 %>% 
