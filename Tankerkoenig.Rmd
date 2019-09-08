@@ -7,17 +7,21 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, 
                       fig.width = 9, fig.height = 7)
 
-library(data.table)
-library(DT)
-library(dygraphs)
-library(magrittr)
+library(tidyverse)
 library(sf)
 library(tmap)
-library(timetk)
-library(tidyr)
+library(data.table)
+library(plotly)
+library(ggplot2)
+
 ```
 
-```{r}
+### Prepare Data
+
+The data was taken from Tankerkoenig for the month of July. We identified the top 5 brands in Germany and filtered for all of the stations under these brands. Then we grouped by station id and calculated the average price for diesel, e5 and e10. Since there were so many stations, we took a sample of the most expensive stations and plotted
+
+
+```{r, cache=TRUE}
 # Import tankstation data and make brands toupper()
 stations <- fread("data/stations/stations.csv")
 stations[, brand := toupper(brand)]
@@ -27,18 +31,23 @@ stations <- stations[longitude > 0 & latitude > 0]
 
 # Extract Top 5 Brands
 top_5 <- stations[, .(count = .N), by=brand][order(-count)][1:5, brand]
-top_5_stations <- stations[brand %in% top_5]
+top_5_brands <- stations[brand %in% top_5]
 
 # Import price data
-prices <- fread("data/prices/2019-06-05-prices.csv")
+prices <- fread("data/2019_Juli_Sommerferien.csv")
 prices[, date := as.Date(date)]
-daily_price <- prices[, .(diesel = round(mean(diesel), 2),
+station_price <- prices[, .(diesel = round(mean(diesel), 2),
                           e5     = round(mean(e5), 2),
                           e10    = round(mean(e10), 2)), 
-                      by = .(date, station_uuid)]
+                      by = .(station_uuid)]
 
 # Join stations with prices
-DT <- merge(top_5_stations, daily_price, by.x="uuid", by.y="station_uuid", all.x=TRUE)
+DT <- merge(top_5_brands, station_price, by.x="uuid", by.y="station_uuid", all.x=TRUE)
+
+# Take only expensive stations
+top_100_diesel <- DT[order(-diesel), uuid][1:100]
+top_100_e5     <- DT[order(-e5), uuid][1:100]
+top_100_e10    <- DT[order(-e10), uuid][1:100]
 
 # Remove stations without price
 DT <- DT[!is.na(date) & diesel > 1.0 & e5 > 1.0 & e10 > 1.0]
@@ -49,7 +58,10 @@ station_map <- DT %>%
     sf::st_transform(crs=4326)
 ```
 
-## Gas Prices Geographically {.tabset}
+
+<br>
+
+## Teuersten Tankstellen in Deutschland {.tabset}
 
 ```{r}
 # tm map settings
@@ -59,42 +71,144 @@ popup <- c("brand", "street", "city", "post_code", "diesel", "e5", "e10")
 
 ### Diesel
 
+#### Durschnittlicher Dieselpreis der Top 5 Marken im Juli 2019:`r round(mean(station_map$diesel), 2)` €
+
 ```{r}
 station_map %>% 
+    dplyr::filter(uuid %in% top_100_diesel) %>% 
     tm_shape() + 
-    tm_dots(col="diesel", style="cont", popup.vars=popup) +
-    tm_view(basemaps = "OpenStreetMap")
+    tm_dots(size = .07, col="diesel", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "Esri.WorldTopoMap")
+```
+
+### e5
+
+#### Durschnittlicher e5-Preis der Top 5 Marken im Juli 2019:`r round(mean(station_map$e5), 2)` €
+
+```{r}
+station_map %>%
+    dplyr::filter(uuid %in% top_100_e5) %>% 
+    tm_shape() + 
+    tm_dots(size = .07, col="e5", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "Esri.WorldTopoMap")
+```
+
+### e10
+
+#### Durschnittlicher e10-Preis der Top 5 Marken im Juli 2019:`r round(mean(station_map$e10), 2)` €
+
+```{r}
+station_map %>% 
+    dplyr::filter(uuid %in% top_100_e10) %>% 
+    tm_shape() + 
+    tm_dots(size = .07, col="e10", style="cont", popup.vars=popup) +
+    tm_view(basemaps = "Esri.WorldTopoMap")
+```
+
+### Data
+
+```{r}
+top_100 <- DT[uuid %in% c(top_100_diesel, top_100_e5, top_100_e10),
+              .(uuid, brand, city, diesel, e5, e10)]
+DT::datatable(top_100)
+```
+
+
+<br>
+
+## Top 5 for each category {.tabset}
+
+```{r}
+daily_price <- prices[, .(diesel = round(mean(diesel), 2),
+                          e5     = round(mean(e5), 2),
+                          e10    = round(mean(e10), 2)), 
+                      by = .(date, station_uuid)]
+# Join stations with prices
+daily_price <- merge(top_5_brands, daily_price, by.x="uuid", by.y="station_uuid", all.x=TRUE)
+
+daily_price <- daily_price[, .(diesel = round(mean(diesel), 2),
+                          e5     = round(mean(e5), 2),
+                          e10    = round(mean(e10), 2)), 
+                      by = .(date, brand)]
+
+daily_price[, date := as.Date(date)]
+```
+
+
+### Diesel
+
+```{r}
+# Average diesel overall
+avg_diesel <- prices[, .(diesel = mean(diesel, na.rm = TRUE)), by=date]
+avg_diesel[, date := as.Date(date)]
+
+# Plot the price change for each station for the month of July
+plt <- ggplot(data=NULL, aes(date, diesel)) +
+    geom_line(data=avg_diesel, colour = "darkgrey", size = 3, alpha=.5) +
+    geom_line(data=daily_price, aes(colour = brand)) +
+    theme_bw()
+
+ggplotly(plt)
 ```
 
 ### e5
 
 ```{r}
-station_map %>% 
-    tm_shape() + 
-    tm_dots(col="e5", style="cont", popup.vars=popup) +
-    tm_view(basemaps = "OpenStreetMap")
+# Average diesel overall
+avg_e5 <- prices[, .(e5 = mean(e5, na.rm = TRUE)), by=date]
+avg_e5[, date := as.Date(date)]
+
+# Plot the price change for each station for the month of July
+plt <- ggplot(data=NULL, aes(date, e5)) +
+    geom_line(data=avg_e5, colour = "darkgrey", size = 3, alpha=.5) +
+    geom_line(data=daily_price, aes(colour = brand)) +
+    theme_bw()
+
+ggplotly(plt)
 ```
 
 ### e10
 
 ```{r}
-station_map %>% 
-    tm_shape() + 
-    tm_dots(col="e10", style="cont", popup.vars=popup) +
-    tm_view(basemaps = "OpenStreetMap")
+# Average diesel overall
+avg_e10 <- prices[, .(e10 = mean(e10, na.rm = TRUE)), by=date]
+avg_e10[, date := as.Date(date)]
+
+# Plot the price change for each station for the month of July
+plt <- ggplot(data=NULL, aes(date, e10)) +
+    geom_line(data=avg_e10, colour = "darkgrey", size = 3, alpha=.5) +
+    geom_line(data=daily_price, aes(colour = brand)) +
+    theme_bw()
+
+ggplotly(plt)
 ```
 
 
-## Oil Crisis 2014
+<br>
 
-### 
+## Where are these brands located
 
-```{r}
-daily_brand <- fread("data/prices/daily_brand_2014.csv")
-daily_brand[, date := as.Date(date)]
-daily_brand[, .(date, brand, avg_diesel)] %>% 
-  tidyr::spread(brand, avg_diesel) %>% 
-  timetk::tk_xts(silent = TRUE) %>% 
-  dygraph(main = "Average Daily Price for Diesel", ylab = "Average Price (€)")
+```{r, cache=10}
+plz_gebiete <- read_sf("data/plz-2stellig/plz-2stellig.shp")
+
+stations[, post_2stellig := substring(post_code, 1, 2)]
+
+brand_zip <- stations %>% 
+  filter(brand %in% top_5) %>%
+  group_by(post_2stellig, brand) %>% 
+  summarise(count = n()) %>% 
+  ungroup()
+
+zip_plt <- brand_zip %>% 
+  left_join(plz_gebiete, by=c("post_2stellig" = "plz")) %>% 
+  ggplot() +
+  geom_sf(aes(geometry=geometry, fill=count)) +
+  coord_sf(crs = st_crs(4326)) +
+  facet_wrap(~ brand) +
+  scale_fill_gradient2(low="white", mid="yellow", high="red", midpoint = 27) +
+  hrbrthemes::theme_ipsum_tw()
+
+zip_plt
 ```
+
 
